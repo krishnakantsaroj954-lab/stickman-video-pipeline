@@ -1,0 +1,140 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Stickman Headless Proof</title>
+<style>
+html,body{margin:0;padding:0;width:720px;height:1280px;overflow:hidden;background:#f5f6fa}
+canvas{display:block;width:720px;height:1280px}
+</style>
+</head>
+<body>
+<canvas id="stage" width="720" height="1280"></canvas>
+<script>
+const c=document.getElementById("stage");
+const ctx=c.getContext("2d");
+const W=720,H=1280,TAU=Math.PI*2;
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const ease=t=>1-Math.pow(1-clamp(t,0,1),3);
+function rr(x,y,w,h,r,fill,stroke,lw){
+  ctx.beginPath();ctx.roundRect(x,y,w,h,r);
+  if(fill){ctx.fillStyle=fill;ctx.fill()}
+  if(stroke){ctx.lineWidth=lw||1;ctx.strokeStyle=stroke;ctx.stroke()}
+}
+function text(s,x,y,size,fill,weight,align){
+  ctx.font=(weight||700)+" "+size+"px Arial";
+  ctx.fillStyle=fill||"#20232a";ctx.textAlign=align||"center";ctx.textBaseline="middle";
+  ctx.fillText(s,x,y);
+}
+function background(scene){
+  const top=scene===0?"#eaf1f8":scene===1?"#f5eee6":"#edf1e8";
+  const floor=scene===2?"#69727b":"#d9d2c8";
+  ctx.fillStyle=top;ctx.fillRect(0,0,W,920);
+  ctx.fillStyle=floor;ctx.fillRect(0,920,W,H);
+  if(scene<2){
+    ctx.fillStyle="#cfe5f5";ctx.fillRect(75,185,570,320);
+    ctx.strokeStyle="#4b5b69";ctx.lineWidth=5;ctx.strokeRect(75,185,570,320);
+    ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(360,185);ctx.lineTo(360,505);ctx.moveTo(75,345);ctx.lineTo(645,345);ctx.stroke();
+    rr(90,600,540,290,36,"#b77d76","#624e49",5);
+    rr(125,705,175,125,24,"#e1b8b2");
+    rr(420,705,175,125,24,"#e1b8b2");
+  }else{
+    ctx.fillStyle="#69727b";ctx.fillRect(0,760,W,160);
+    for(let x=-60;x<800;x+=170)rr(x,835,100,18,8,"#f4efc9");
+    ctx.fillStyle="#7b9f71";ctx.fillRect(515,430,38,190);
+    ctx.beginPath();ctx.arc(535,390,72,0,TAU);ctx.fill();
+  }
+}
+function drawPhone(x,y,s,alert,rot){
+  s=s||1;rot=rot||0;ctx.save();ctx.translate(x,y);ctx.rotate(rot);
+  rr(0,0,115*s,202*s,18*s,"#23262c","#090a0b",4);
+  rr(9*s,15*s,97*s,172*s,11*s,"#e0f0fb");
+  ctx.fillStyle="#5c89da";ctx.fillRect(20*s,52*s,72*s,9*s);
+  ctx.fillStyle="#a3adbc";ctx.fillRect(20*s,78*s,58*s,8*s);ctx.fillRect(20*s,105*s,66*s,8*s);
+  text("98%",20*s,30*s,16,alert?"#df3e4e":"#69727d",700,"left");
+  ctx.restore();
+}
+function face(x,y,mood,speaking,t){
+  const blink=(Math.floor(t*24)%67)<2;
+  ctx.fillStyle="#1f2228";
+  if(mood==="shock"||mood==="panic"){
+    ctx.beginPath();ctx.arc(x-18,y-8,8,0,TAU);ctx.arc(x+18,y-8,8,0,TAU);ctx.fill();
+  }else if(!blink){
+    ctx.beginPath();ctx.arc(x-18,y-8,4.5,0,TAU);ctx.arc(x+18,y-8,4.5,0,TAU);ctx.fill();
+  }
+  ctx.lineWidth=4;ctx.strokeStyle="#1f2228";
+  if(mood==="happy"||mood==="proud"){
+    ctx.beginPath();ctx.arc(x,y+17,22,0.15*Math.PI,0.85*Math.PI);ctx.stroke();
+  }else if(mood==="sad"){
+    ctx.beginPath();ctx.arc(x,y+30,22,1.15*Math.PI,1.85*Math.PI);ctx.stroke();
+  }else if(speaking){
+    if((Math.floor(t*12)%2)===0){
+      ctx.fillStyle="#1f2228";ctx.beginPath();ctx.ellipse(x,y+27,9,13,0,0,TAU);ctx.fill();
+    }else{
+      ctx.beginPath();ctx.moveTo(x-10,y+28);ctx.lineTo(x+10,y+28);ctx.stroke();
+    }
+  }else{
+    ctx.beginPath();ctx.moveTo(x-10,y+28);ctx.lineTo(x+10,y+28);ctx.stroke();
+  }
+}
+function character(x,ground,role,mood,speaking,t,scale){
+  scale=scale||1;
+  const body=role==="mom"?"#d64f70":"#3376df";
+  const shirt=role==="mom"?"#ffe1ea":"#dfeaff";
+  const ph=t*TAU;
+  let arms,legs;
+  if(mood==="scold"){arms=[[-85,2],[112,-55]];legs=[[-68,4],[68,4]]}
+  else if(mood==="phone"){arms=[[-82,25],[54,-8]];legs=[[-68,3],[68,3]]}
+  else if(mood==="panic"){arms=[[-112,-70],[112,-85]];legs=[[-90,5],[90,8]]}
+  else if(mood==="celebrate"){arms=[[-115,-110],[115,-110]];legs=[[-75,5],[75,5]]}
+  else{const sw=Math.sin(ph)*10;arms=[[-88,34+sw],[88,34-sw]];legs=[[-68,3],[68,3]]}
+  const torso=ground-285*scale,hip=ground-125*scale,head=torso-105*scale,r=45*scale;
+  ctx.fillStyle="rgba(0,0,0,.12)";ctx.beginPath();ctx.ellipse(x,ground+10,58*scale,11*scale,0,0,TAU);ctx.fill();
+  ctx.lineWidth=7*scale;ctx.strokeStyle="#1f2228";
+  for(const pair of legs){const dx=pair[0],dy=pair[1];ctx.beginPath();ctx.moveTo(x,hip);ctx.lineTo(x+dx*scale,ground+dy*scale);ctx.stroke()}
+  rr(x-39*scale,torso,78*scale,160*scale,22*scale,shirt,body,4);
+  for(const pair of arms){const dx=pair[0],dy=pair[1];ctx.beginPath();ctx.moveTo(x,torso+48*scale);ctx.lineTo(x+dx*scale,torso+48*scale+dy*scale);ctx.stroke()}
+  ctx.fillStyle="#ffefd8";ctx.beginPath();ctx.arc(x,head,r,0,TAU);ctx.fill();
+  ctx.lineWidth=7*scale;ctx.strokeStyle="#1f2228";ctx.stroke();
+  ctx.strokeStyle=body;ctx.lineWidth=5*scale;ctx.beginPath();ctx.arc(x,head-18*scale,r*.95,Math.PI*1.05,Math.PI*1.95);ctx.stroke();
+  face(x,head,mood,speaking,t);
+}
+function bubble(x,y,s,color){
+  const w=270,h=92;rr(x-w/2,y-h,w,h,22,"#fff",color,4);
+  text(s,x,y-h/2+4,25,color,800);
+}
+function render(t){
+  const scene=t<2.4?0:t<4.8?1:2;
+  const local=scene===0?t/2.4:scene===1?(t-2.4)/2.4:(t-4.8)/5.2;
+  background(scene);
+  const zoom=1+0.035*Math.sin(local*Math.PI)+(scene===1?.04:0);
+  const pan=(scene===1?22:-14)*Math.sin(local*Math.PI);
+  ctx.save();ctx.translate(W/2+pan,H/2);ctx.scale(zoom,zoom);ctx.translate(-W/2,-H/2);
+  if(scene===0){
+    const bx=380+35*Math.sin(local*TAU);
+    character(bx,900,"hero","phone",true,local,1.08);
+    drawPhone(bx+70,655,.72,true,-.08+.16*local);
+    bubble(365,560,"Bas 2 minute!","#3376df");
+  }else if(scene===1){
+    character(260,900,"hero","shock",true,local,1.0);
+    const mx=480+100*ease(local);
+    character(mx,900,"mom","scold",true,local,1.0);
+    drawPhone(215,655,.66,true,.08);
+    bubble(495,545,"KYA KAR RAHE HO?","#d64f70");
+  }else{
+    const hx=220+300*ease(local);
+    character(hx,900,local<.55?"hero":"hero",local<.55?"panic":"celebrate",true,local,1.0);
+    character(555,900,"mom","happy",false,local,1.02);
+    if(local<.4)drawPhone(hx+55,660,.62,true,-.25);
+    else bubble(350,515,"PAKDE GAYE!","#3376df");
+  }
+  ctx.restore();
+  ctx.fillStyle="rgba(24,25,30,.93)";ctx.fillRect(0,0,W,92);
+  text("ORIGINAL ANIMATION PROOF",28,46,24,"#fff",800,"left");
+  text("HEADLESS • FRAME ACCURATE",692,46,18,"#cdd2da",600,"right");
+}
+window.__renderFrame=function(t){render(t)};
+window.__renderReady=true;
+</script>
+</body>
+</html>
