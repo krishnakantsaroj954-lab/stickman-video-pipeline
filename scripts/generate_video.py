@@ -15,13 +15,14 @@ from PIL import Image, ImageDraw, ImageFont
 WIDTH = 720
 HEIGHT = 1280
 FPS = 12
-SCENE_SECONDS = 3
+SCENE_SECONDS = 11.25
 SCENES = 4
 TOTAL_FRAMES = FPS * SCENE_SECONDS * SCENES
 
 ROOT = Path(__file__).resolve().parent.parent
 FRAMES = ROOT / "build" / "frames"
 OUT = ROOT / "build" / "stickman-video.mp4"
+VOICE_WAV = ROOT / "build" / "voice.wav"
 
 FONT_CANDIDATES = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -104,13 +105,13 @@ def draw_scene(index: int, topic: str, frame_in_scene: int) -> Image.Image:
     draw = ImageDraw.Draw(img)
 
     draw.rectangle((0, 0, WIDTH, 125), fill=(235, 235, 235))
-    draw.text((40, 32), f"STICKMAN LESSON  •  {index}/4", font=SMALL_FONT, fill=(70, 70, 70))
+    draw.text((40, 32), f"STICKMAN STORY  •  {index}/4", font=SMALL_FONT, fill=(70, 70, 70))
 
     titles = [
         f"Today: {topic}",
-        "Build the idea",
-        "See it in action",
-        "Remember this",
+        "THE PLAN",
+        "THE CHAOS",
+        "PLOT TWIST",
     ]
     centered_text(draw, titles[index - 1], 165, TITLE_FONT, 630)
 
@@ -121,33 +122,51 @@ def draw_scene(index: int, topic: str, frame_in_scene: int) -> Image.Image:
     if index == 1:
         draw_stickman(draw, 360, ground, phase, 1.0)
         draw.rounded_rectangle((120, 940, 600, 1100), radius=24, outline=(80, 80, 80), width=4)
-        centered_text(draw, f"Explore one clear example of {topic}.", 975, BODY_FONT, 430)
+        centered_text(draw, f"{topic} starts innocent... then everything goes sideways.", 975, BODY_FONT, 430)
     elif index == 2:
         draw_stickman(draw, 270, ground, phase, 0.95)
         draw_stickman(draw, 450, ground, phase + math.pi, 0.95)
         draw.line((330, 690, 390, 690), fill=(60, 60, 60), width=8)
         draw.polygon((390, 690, 365, 675, 365, 705), fill=(60, 60, 60))
         draw.rounded_rectangle((80, 940, 640, 1100), radius=24, outline=(80, 80, 80), width=4)
-        centered_text(draw, "Connect the parts, then check what changes.", 975, BODY_FONT, 510)
+        centered_text(draw, "Step 1: confidence. Step 2: overconfidence. Step 3: panic.", 975, BODY_FONT, 510)
     elif index == 3:
         x = int(160 + 400 * t)
         draw_stickman(draw, x, ground, phase * 1.3, 0.9)
         draw.line((120, 900, 600, 900), fill=(100, 100, 100), width=5)
         draw.rounded_rectangle((90, 940, 630, 1100), radius=24, outline=(80, 80, 80), width=4)
-        centered_text(draw, f"Watch the motion while thinking about {topic}.", 975, BODY_FONT, 490)
+        centered_text(draw, "At this point the original plan has officially left the chat.", 975, BODY_FONT, 490)
     else:
         draw_stickman(draw, 360, ground, phase, 1.0)
         draw.rounded_rectangle((100, 925, 620, 1105), radius=24, outline=(80, 80, 80), width=4)
-        centered_text(draw, f"Key takeaway: keep the core idea of {topic} simple.", 955, BODY_FONT, 470)
+        centered_text(draw, "Lesson learned: backup plan rakho... hero mat bano.", 955, BODY_FONT, 470)
 
-    footer = "Generated locally • deterministic smoke-test pipeline"
+    footer = "Original stickman entertainment prototype"
     box = draw.textbbox((0, 0), footer, font=SMALL_FONT)
     draw.text(((WIDTH - (box[2] - box[0])) // 2, 1180), footer, font=SMALL_FONT, fill=(100, 100, 100))
     return img
 
+def make_voice(topic: str) -> None:
+    if not shutil.which("espeak"):
+        raise RuntimeError("eSpeak is required but was not found.")
+    narration = (
+        f"Aaj ka topic hai {topic}. "
+        "Shuru mein sab simple lag raha tha. "
+        "Phir ek chhoti si problem aayi aur plan seedha chaos ban gaya. "
+        "Main sochta raha, sab control mein hai. "
+        "Lekin plot twist ye tha ki problem situation nahi, meri overconfidence thi. "
+        "Agli baar backup plan ke bina hero mode nahi."
+    )
+    subprocess.run(
+        ["espeak", "-v", "hi", "-s", "155", "-p", "52", "-a", "150", "-w", str(VOICE_WAV)],
+        input=narration,
+        text=True,
+        check=True,
+    )
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--topic", default="Physics", help="Topic for the generated lesson")
+    parser.add_argument("--topic", default="Funny topic", help="Topic for the entertainment Short")
     args = parser.parse_args()
 
     topic = " ".join(args.topic.split()).strip() or "Physics"
@@ -179,6 +198,23 @@ def main() -> None:
         ],
         check=True,
     )
+
+    make_voice(topic)
+    final = OUT.with_name("stickman-video-final.mp4")
+    subprocess.run(
+        [
+            ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(OUT),
+            "-i", str(VOICE_WAV),
+            "-filter_complex", "[1:a]apad,volume=1[a]",
+            "-map", "0:v:0", "-map", "[a]",
+            "-t", str(SCENE_SECONDS * SCENES),
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart", str(final),
+        ],
+        check=True,
+    )
+    final.replace(OUT)
 
     if not OUT.exists() or OUT.stat().st_size < 10_000:
         raise RuntimeError("Video was not created correctly.")
