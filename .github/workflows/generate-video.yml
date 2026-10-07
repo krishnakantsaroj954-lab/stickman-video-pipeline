@@ -44,9 +44,17 @@ jobs:
           ffprobe -version
           python -m py_compile scripts/generate_video.py scripts/quality_check.py
 
-      - name: Generate Phase 2 entertainment Short
+      - name: Require ElevenLabs API key
+        env:
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+        run: |
+          test -n "$ELEVENLABS_API_KEY" || (echo "ELEVENLABS_API_KEY GitHub Actions secret is required" && exit 1)
+
+      - name: Generate Phase 2 entertainment Short with ElevenLabs
         env:
           TOPIC: "${{ inputs.topic || 'Mummy ke saamne phone chalaate hue pakde jaana' }}"
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_MODEL_ID: "eleven_multilingual_v2"
         run: python scripts/generate_video.py --topic "$TOPIC"
 
       - name: Run real MP4 quality gate
