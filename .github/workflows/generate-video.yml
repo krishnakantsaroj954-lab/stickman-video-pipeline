@@ -1,6 +1,9 @@
 name: Generate Stickman Entertainment Short
 
 on:
+  push:
+    branches:
+      - phase2/animated-short-quality
   pull_request:
   workflow_dispatch:
     inputs:
