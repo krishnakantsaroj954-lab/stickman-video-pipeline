@@ -1,6 +1,7 @@
 name: Generate Stickman Entertainment Short
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       topic:
