@@ -504,7 +504,7 @@ def mux():
         "ffmpeg","-y","-hide_banner","-loglevel","error",
         "-i",str(VIDEO_ONLY),"-i",str(MIX_WAV),
         "-map","0:v:0","-map","1:a:0","-c:v","copy","-c:a","aac","-b:a","160k",
-        "-t",f"{d:.3f}","-movflags","+faststart",str(OUT)
+        "-shortest","-movflags","+faststart",str(OUT)
     ])
 
 
