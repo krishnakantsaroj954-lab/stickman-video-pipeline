@@ -1,6 +1,7 @@
 name: Verticals v3 check + real stickman Short
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       topic:
