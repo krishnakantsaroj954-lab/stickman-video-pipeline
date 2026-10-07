@@ -4,16 +4,18 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import math
+import os
 import shutil
 import subprocess
+import urllib.error
+import urllib.parse
+import urllib.request
 import wave
 from array import array
 from pathlib import Path
 
-import edge_tts
 from PIL import Image, ImageDraw, ImageFont
 
 W, H, FPS = 720, 1280, 18
@@ -372,53 +374,158 @@ def draw_scene(scene, local, dur, scene_number, total, frame):
     return frame_img
 
 
-async def choose_voice(locale, gender, preferred):
-    voices = await edge_tts.list_voices()
-    available = {v["ShortName"]: v for v in voices}
-    for name in preferred:
-        if name in available:
-            return name
-    matches = [v["ShortName"] for v in voices if v.get("Locale")==locale and v.get("Gender")==gender]
-    if matches:
-        return matches[0]
-    fallback = [v["ShortName"] for v in voices if v.get("Locale")==locale]
-    if fallback:
-        return fallback[0]
-    raise RuntimeError("No hi-IN neural voice available.")
+def elevenlabs_json_request(url, method="GET", payload=None, api_key=""):
+    headers = {"xi-api-key": api_key, "Accept": "application/json"}
+    data = None
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"ElevenLabs API error {exc.code}: {detail[:500]}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"ElevenLabs network error: {exc.reason}") from exc
 
 
-async def make_voice(story_data):
+def elevenlabs_audio(text, voice_id, model_id, output_path, api_key):
+    params = urllib.parse.urlencode({"output_format": "mp3_44100_128"})
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?{params}"
+    payload = {
+        "text": text,
+        "model_id": model_id,
+        "voice_settings": {
+            "stability": 0.45,
+            "similarity_boost": 0.82,
+            "style": 0.28,
+            "speed": 1.02,
+            "use_speaker_boost": True,
+        },
+    }
+    headers = {
+        "xi-api-key": api_key,
+        "Content-Type": "application/json",
+        "Accept": "audio/mpeg",
+    }
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=180) as response:
+            output_path.write_bytes(response.read())
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"ElevenLabs TTS error {exc.code}: {detail[:500]}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"ElevenLabs TTS network error: {exc.reason}") from exc
+
+
+def choose_voice(api_key, gender, preferred_names, explicit_id="", used_ids=None):
+    used_ids = used_ids or set()
+    explicit_id = explicit_id.strip()
+    if explicit_id:
+        return explicit_id
+
+    base_params = {
+        "language": "hi",
+        "accent": "indian",
+        "gender": gender.lower(),
+        "page_size": "100",
+    }
+
+    # Prefer a stable, named Hindi/Indian voice when the account exposes it.
+    for name in preferred_names:
+        params = dict(base_params)
+        params["search"] = name
+        url = "https://api.elevenlabs.io/v2/voices?" + urllib.parse.urlencode(params)
+        data = elevenlabs_json_request(url, api_key=api_key)
+        for voice in data.get("voices", []):
+            vid = str(voice.get("voice_id", "")).strip()
+            vname = str(voice.get("name", "")).strip()
+            if vid and vid not in used_ids and vname:
+                return vid
+
+    # Otherwise use the first Hindi/Indian voice available to this API key.
+    url = "https://api.elevenlabs.io/v2/voices?" + urllib.parse.urlencode(base_params)
+    data = elevenlabs_json_request(url, api_key=api_key)
+    candidates = []
+    for voice in data.get("voices", []):
+        vid = str(voice.get("voice_id", "")).strip()
+        if not vid or vid in used_ids:
+            continue
+        labels = voice.get("labels") or {}
+        language = str(labels.get("language", "")).lower()
+        accent = str(labels.get("accent", "")).lower()
+        if language in {"hi", "hindi"} or accent in {"indian", "desi"}:
+            candidates.append(vid)
+
+    if candidates:
+        return candidates[0]
+
+    raise RuntimeError(
+        f"No usable Hindi/Indian {gender} ElevenLabs voice found. "
+        "Set the matching ELEVENLABS_*_VOICE_ID GitHub secret/environment value."
+    )
+
+
+def make_voice(story_data):
     VOICE_DIR.mkdir(parents=True, exist_ok=True)
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
-    narrator = await choose_voice("hi-IN", "Female", ["hi-IN-SwaraNeural", "hi-IN-AnanyaNeural"])
-    hero = await choose_voice("hi-IN", "Male", ["hi-IN-MadhurNeural", "hi-IN-KunalNeural", "hi-IN-AaravNeural"])
-    mom = await choose_voice("hi-IN", "Female", ["hi-IN-AnanyaNeural", "hi-IN-SwaraNeural", "hi-IN-AartiNeural"])
+    api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("ELEVENLABS_API_KEY is required for the final render.")
 
-    voice_map = {"narrator": narrator, "hero": hero, "mom": mom}
+    model_id = os.getenv("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2").strip()
+
+    used_ids = set()
+    voice_map = {}
+
+    for role, gender, preferred_names, env_name in [
+        ("narrator", "female", ["Monika Sogam", "Devi", "Niraj"], "ELEVENLABS_NARRATOR_VOICE_ID"),
+        ("hero", "male", ["Bunty", "Raju", "Vikram", "Krishna Gupta"], "ELEVENLABS_HERO_VOICE_ID"),
+        ("mom", "female", ["Devi", "Monika Sogam"], "ELEVENLABS_MOM_VOICE_ID"),
+    ]:
+        voice_id = choose_voice(
+            api_key,
+            gender,
+            preferred_names,
+            os.getenv(env_name, ""),
+            used_ids,
+        )
+        voice_map[role] = voice_id
+        used_ids.add(voice_id)
+
     durations, paths = [], []
-
     for i, scene in enumerate(story_data, 1):
         mp3 = VOICE_DIR / f"scene-{i}.mp3"
         wav = VOICE_DIR / f"scene-{i}.wav"
         selected = voice_map[scene["voice"]]
-        rate = "+2%" if scene["voice"] == "mom" else "+6%"
-        pitch = "+2Hz" if scene["voice"] == "mom" else ("0Hz" if scene["voice"] == "hero" else "+1Hz")
-        await edge_tts.Communicate(
-            scene["line"], voice=selected, rate=rate, pitch=pitch, volume="+0%"
-        ).save(str(mp3))
+        elevenlabs_audio(scene["line"], selected, model_id, mp3, api_key)
         run([
-            "ffmpeg","-y","-hide_banner","-loglevel","error","-i",str(mp3),
-            "-af","loudnorm=I=-16:TP=-1.5:LRA=9","-ar","48000","-ac","1",str(wav)
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(mp3),
+            "-af", "loudnorm=I=-16:TP=-1.5:LRA=9",
+            "-ar", "48000", "-ac", "1", str(wav)
         ])
         durations.append(duration(wav))
         paths.append(wav)
 
     lst = AUDIO_DIR / "concat.txt"
-    lst.write_text("".join(f"file '{p.as_posix()}'\n" for p in paths), encoding="utf-8")
+    lst.write_text(
+        "".join(f"file '{p.as_posix()}'\n" for p in paths),
+        encoding="utf-8",
+    )
     run([
-        "ffmpeg","-y","-hide_banner","-loglevel","error","-f","concat","-safe","0",
-        "-i",str(lst),"-ar","48000","-ac","1","-c:a","pcm_s16le",str(VOICE_WAV)
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "concat", "-safe", "0", "-i", str(lst),
+        "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", str(VOICE_WAV)
     ])
     return durations, voice_map
 
@@ -508,7 +615,7 @@ def mux():
     ])
 
 
-async def build(topic):
+def build(topic):
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         raise SystemExit("FFmpeg and ffprobe are required.")
 
@@ -559,7 +666,7 @@ def main():
     topic = " ".join(ap.parse_args().topic.split()).strip()
     if not topic:
         raise SystemExit("Topic cannot be empty.")
-    asyncio.run(build(topic))
+    build(topic)
     if not OUT.exists() or OUT.stat().st_size < 30000:
         raise RuntimeError("Final video was not created correctly.")
     print(f"Created: {OUT}")

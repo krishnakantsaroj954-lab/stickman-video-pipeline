@@ -8,11 +8,13 @@ The target is a polished 2D storytelling Short rather than a static slideshow.
 
 Pipeline:
 
-topic -> scripted story beats -> character acting -> scene backgrounds -> camera movement -> neural Hindi voice -> voice-derived timeline -> timed captions -> procedural SFX -> 9:16 H.264/AAC MP4 -> quality gate -> GitHub artifact
+topic -> scripted story beats -> character acting -> scene backgrounds -> camera movement -> ElevenLabs Hindi voice -> voice-derived timeline -> timed captions -> procedural SFX -> 9:16 H.264/AAC MP4 -> quality gate -> GitHub artifact
 
 ### What Phase 2 adds
 
-- Two recurring characters with distinct visual identity and neural Hindi voices.
+- Two recurring characters with distinct visual identity and ElevenLabs Hindi voices.
+- ElevenLabs is called through the GitHub Actions secret `ELEVENLABS_API_KEY`; the key is never stored in the repository.
+- Voice IDs can optionally be pinned with `ELEVENLABS_NARRATOR_VOICE_ID`, `ELEVENLABS_HERO_VOICE_ID`, and `ELEVENLABS_MOM_VOICE_ID`; otherwise the renderer finds Hindi/Indian voices available to the API key.
 - Multiple backgrounds and shot types: close, medium, wide and impact/shake.
 - Facial expressions and pose changes for confidence, surprise, panic, scolding, sadness and celebration.
 - Actual narration duration controls scene timing; captions are derived from that timing instead of fixed 7.5-second blocks.
