@@ -17,7 +17,8 @@ HEIGHT = 1280
 FPS = 12
 SCENE_SECONDS = 11.25
 SCENES = 4
-TOTAL_FRAMES = FPS * SCENE_SECONDS * SCENES
+FRAMES_PER_SCENE = int(FPS * SCENE_SECONDS)
+TOTAL_FRAMES = FRAMES_PER_SCENE * SCENES
 
 ROOT = Path(__file__).resolve().parent.parent
 FRAMES = ROOT / "build" / "frames"
@@ -178,8 +179,8 @@ def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
 
     for frame_no in range(TOTAL_FRAMES):
-        scene = frame_no // (FPS * SCENE_SECONDS) + 1
-        local = frame_no % (FPS * SCENE_SECONDS)
+        scene = frame_no // FRAMES_PER_SCENE + 1
+        local = frame_no % FRAMES_PER_SCENE
         draw_scene(scene, topic, local).save(FRAMES / f"frame-{frame_no:05d}.png", optimize=True)
 
     ffmpeg = shutil.which("ffmpeg")
