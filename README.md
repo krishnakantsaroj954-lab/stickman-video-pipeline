@@ -1,25 +1,27 @@
-# Stickman Video Pipeline
+# Stickman AI Entertainment Video Pipeline
 
-A lightweight, GitHub-Actions-friendly pipeline that turns a topic into a simple educational stickman MP4.
+This repo is for original funny/relatable stickman entertainment videos. It is separate from JEE PYQ Master.
 
-## Current stage
+Phase 1: build one real 45-second YouTube Short from a topic.
 
-This first stage is intentionally dependency-light and deterministic:
+Pipeline build revision: 2026-10-07 dependency-fix
 
-1. Accept a topic.
-2. Build a short 4-scene storyboard locally.
-3. Draw stickman scenes with Pillow.
-4. Render the frames to an MP4 with FFmpeg.
-5. Upload the MP4 as a GitHub Actions artifact.
+Flow: topic -> story -> stickman scenes -> Hindi voice -> captions -> SFX -> 9:16 MP4 -> quality gate -> artifact.
 
-No web scraping, no background services, no repository polling, and no required API keys.
+Current prototype uses Pillow + FFmpeg + eSpeak Hindi. The eSpeak track is a real prototype voice, not a claim that a premium AI voice provider is connected.
 
-## Run
+Rules:
+- no fake success
+- no automatic YouTube publishing
+- no scraping or copying creators
+- no reuse of JEE files, Workers or D1
 
-Open **Actions → Generate Stickman Video → Run workflow**, enter a topic, and download the `stickman-video` artifact from the completed run.
+Next phases:
+1. Better animation and expressions
+2. Better voice/caption/sound quality
+3. Checkpoints, retries and targeted reruns
+4. Shorts engine with multiple story formats
+5. 3-5+ minute long-form engine
+6. Controlled batch generation and optional publishing
 
-The push-triggered smoke test also runs automatically to verify the pipeline after changes.
-
-## Next stages
-
-After this smoke-test version is proven, AI script generation, voice-over, richer animation, and YouTube publishing can be added as separate optional stages.
+Definition of done: 720x1280 MP4, about 45 seconds, real audio + video, phone-playable, QC PASS, downloadable artifact.
