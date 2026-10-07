@@ -40,14 +40,13 @@ jobs:
 
       - name: Render video
         env:
-          TOPIC: ${{ inputs.topic || 'Smoke Test: Newtons Third Law' }}
+          TOPIC: "${{ inputs.topic || 'Smoke Test - Newtons Third Law' }}"
         run: python scripts/generate_video.py --topic "$TOPIC"
 
       - name: Validate MP4
         run: |
           test -s build/stickman-video.mp4
-          ffprobe -v error -show_entries format=duration:stream=codec_name,width,height \
-            -of default=noprint_wrappers=1 build/stickman-video.mp4
+          ffprobe -v error -show_entries format=duration:stream=codec_name,width,height             -of default=noprint_wrappers=1 build/stickman-video.mp4
 
       - name: Upload video artifact
         uses: actions/upload-artifact@v4
