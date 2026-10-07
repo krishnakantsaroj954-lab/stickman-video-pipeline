@@ -1,27 +1,40 @@
 # Stickman AI Entertainment Video Pipeline
 
-This repo is for original funny/relatable stickman entertainment videos. It is separate from JEE PYQ Master.
+This repo generates original, animated Hindi/Hinglish entertainment Shorts. It is separate from JEE PYQ Master.
 
-Phase 1: build one real 45-second YouTube Short from a topic.
+## Phase 2
 
-Pipeline build revision: 2026-10-07 dependency-fix
+The target is a polished 2D storytelling Short rather than a static slideshow.
 
-Flow: topic -> story -> stickman scenes -> Hindi voice -> captions -> SFX -> 9:16 MP4 -> quality gate -> artifact.
+Pipeline:
 
-Current prototype uses Pillow + FFmpeg + eSpeak Hindi. The eSpeak track is a real prototype voice, not a claim that a premium AI voice provider is connected.
+topic -> scripted story beats -> character acting -> scene backgrounds -> camera movement -> neural Hindi voice -> voice-derived timeline -> timed captions -> procedural SFX -> 9:16 H.264/AAC MP4 -> quality gate -> GitHub artifact
 
-Rules:
-- no fake success
-- no automatic YouTube publishing
-- no scraping or copying creators
-- no reuse of JEE files, Workers or D1
+### What Phase 2 adds
 
-Next phases:
-1. Better animation and expressions
-2. Better voice/caption/sound quality
-3. Checkpoints, retries and targeted reruns
-4. Shorts engine with multiple story formats
-5. 3-5+ minute long-form engine
-6. Controlled batch generation and optional publishing
+- Two recurring characters with distinct visual identity and neural Hindi voices.
+- Multiple backgrounds and shot types: close, medium, wide and impact/shake.
+- Facial expressions and pose changes for confidence, surprise, panic, scolding, sadness and celebration.
+- Actual narration duration controls scene timing; captions are derived from that timing instead of fixed 7.5-second blocks.
+- Caption chunks animate slightly and remain readable on a phone.
+- Procedural impact/whoosh/pop accents are mixed quietly under the dialogue.
+- A machine-checkable MP4 gate checks resolution, frame rate, codecs, audio format and audio/video duration drift.
+- build/story.json records the selected voices and the measured scene timeline.
 
-Definition of done: 720x1280 MP4, about 45 seconds, real audio + video, phone-playable, QC PASS, downloadable artifact.
+## Run
+
+Open **Actions -> Generate Stickman Entertainment Short -> Run workflow**, enter a topic, and download the **stickman-short-phase2** artifact after the workflow passes.
+
+Example topic:
+
+Mummy ke saamne phone chalaate hue pakde jaana
+
+## Quality policy
+
+A green GitHub job only means the technical render gates passed. Visual quality is still judged from the actual rendered artifact. The pipeline does not scrape, copy or reuse another creator's characters, footage or audio.
+
+There is no automatic YouTube publishing and no required paid API key in Phase 2.
+
+## Next upgrade
+
+Phase 3 can add a richer story engine with more scene templates, reusable props, stronger lip-sync cues and optional long-form rendering without changing the core Phase 2 artifact contract.

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Generate a 45-second animated Hindi/Hinglish stickman comedy Short."""
+"""Original 2D Hindi/Hinglish entertainment Shorts renderer - Phase 2 polished pass."""
+
+from __future__ import annotations
 
 import argparse
 import asyncio
@@ -8,368 +10,560 @@ import math
 import shutil
 import subprocess
 import wave
+from array import array
 from pathlib import Path
 
 import edge_tts
 from PIL import Image, ImageDraw, ImageFont
 
-W, H, FPS = 720, 1280, 15
-SCENE_SECONDS = 7.5
-SCENES = 6
-FRAMES_PER_SCENE = int(SCENE_SECONDS * FPS)
+W, H, FPS = 720, 1280, 18
+MIN_DURATION, MAX_DURATION = 35.0, 58.0
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
 FRAMES = BUILD / "frames"
 VOICE_DIR = BUILD / "voice"
-VIDEO = BUILD / "video-only.mp4"
-VOICE = BUILD / "voice.wav"
+AUDIO_DIR = BUILD / "audio"
+VIDEO_ONLY = BUILD / "video-only.mp4"
+VOICE_WAV = AUDIO_DIR / "voice.wav"
+MIX_WAV = AUDIO_DIR / "mix.wav"
 OUT = BUILD / "stickman-video.mp4"
+TIMELINE = BUILD / "story.json"
 
 FONT_BOLD = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
 ]
-FONT_REGULAR = [
+FONT_REG = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
 ]
 
+C = {
+    "ink": (24, 25, 30),
+    "muted": (96, 98, 104),
+    "white": (255, 255, 255),
+    "hero": (43, 111, 224),
+    "hero_light": (223, 235, 255),
+    "mom": (216, 76, 103),
+    "mom_light": (255, 226, 235),
+    "skin": (255, 238, 216),
+    "red": (218, 61, 61),
+}
 
-def pick_font(paths, size):
-    for path in paths:
-        if Path(path).exists():
-            return ImageFont.truetype(path, size=size)
+
+def ft(paths, size):
+    for p in paths:
+        if Path(p).exists():
+            return ImageFont.truetype(p, size)
     return ImageFont.load_default()
 
 
-TITLE = pick_font(FONT_BOLD, 48)
-CAPTION = pick_font(FONT_BOLD, 38)
-SMALL = pick_font(FONT_REGULAR, 24)
-TINY = pick_font(FONT_REGULAR, 20)
+TITLE = ft(FONT_BOLD, 50)
+SUBTITLE = ft(FONT_BOLD, 36)
+CAPTION = ft(FONT_BOLD, 34)
+SMALL = ft(FONT_REG, 23)
+TINY = ft(FONT_REG, 18)
 
 
-def center_text(draw, text, y, font, max_width=630, fill=(20, 20, 20)):
+def run(cmd):
+    subprocess.run(cmd, check=True)
+
+
+def duration(path: Path) -> float:
+    raw = subprocess.check_output(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+        text=True,
+    )
+    return float(raw.strip())
+
+
+def tw(draw, text, font):
+    b = draw.textbbox((0, 0), text, font=font)
+    return b[2] - b[0]
+
+
+def wrap(draw, text, font, max_width):
     words = text.split()
-    lines = []
-    current = ""
+    lines, cur = [], ""
     for word in words:
-        trial = word if not current else current + " " + word
-        if draw.textbbox((0, 0), trial, font=font)[2] <= max_width:
-            current = trial
+        trial = word if not cur else cur + " " + word
+        if tw(draw, trial, font) <= max_width:
+            cur = trial
         else:
-            if current:
-                lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
+            if cur:
+                lines.append(cur)
+            cur = word
+    if cur:
+        lines.append(cur)
+    return lines
 
-    line_h = font.getbbox("Ag")[3] - font.getbbox("Ag")[1] + 6
+
+def centered(draw, text, y, font, max_width, fill=C["ink"]):
+    lines = wrap(draw, text, font, max_width)
+    lh = font.getbbox("Ag")[3] - font.getbbox("Ag")[1] + 7
     for i, line in enumerate(lines):
-        box = draw.textbbox((0, 0), line, font=font)
-        x = (W - (box[2] - box[0])) // 2
-        draw.text((x, y + i * line_h), line, font=font, fill=fill)
+        draw.text(((W - tw(draw, line, font)) // 2, y + i * lh), line, font=font, fill=fill)
 
 
-def draw_phone(draw, x, y, scale=1.0, tilt=0):
-    sw, sh = int(115 * scale), int(205 * scale)
-    draw.rounded_rectangle(
-        (x, y, x + sw, y + sh),
-        radius=int(18 * scale),
-        fill=(35, 35, 35),
-        outline=(10, 10, 10),
-        width=max(2, int(4 * scale)),
-    )
-    draw.rounded_rectangle(
-        (x + int(9 * scale), y + int(14 * scale), x + sw - int(9 * scale), y + sh - int(14 * scale)),
-        radius=int(10 * scale),
-        fill=(220, 240, 255),
-    )
-    draw.text((x + int(16 * scale), y + int(24 * scale)), "1%", font=TINY, fill=(200, 30, 30))
+def background(draw, kind):
+    colors = {
+        "room": ((238, 242, 248), (223, 214, 201)),
+        "hall": ((247, 240, 230), (220, 213, 201)),
+        "street": ((229, 240, 248), (106, 112, 122)),
+    }
+    top, floor = colors.get(kind, colors["room"])
+    draw.rectangle((0, 0, W, 920), fill=top)
+    draw.rectangle((0, 920, W, H), fill=floor)
+
+    if kind == "room":
+        draw.rectangle((70, 170, 650, 530), fill=(212, 232, 246), outline=(62, 72, 83), width=4)
+        draw.line((360, 170, 360, 530), fill=(62, 72, 83), width=3)
+        draw.line((70, 350, 650, 350), fill=(62, 72, 83), width=3)
+        draw.rounded_rectangle((98, 600, 622, 875), 36, fill=(183, 120, 111), outline=(91, 67, 60), width=4)
+        draw.rounded_rectangle((135, 700, 310, 835), 24, fill=(229, 184, 178))
+        draw.rounded_rectangle((410, 700, 585, 835), 24, fill=(229, 184, 178))
+    elif kind == "hall":
+        draw.rectangle((530, 170, 670, 825), fill=(188, 155, 116), outline=(90, 67, 51), width=4)
+        draw.ellipse((585, 480, 605, 500), fill=(90, 67, 51))
+        draw.rectangle((62, 700, 245, 860), fill=(196, 195, 194), outline=(94, 94, 94), width=3)
+        draw.rectangle((476, 700, 658, 860), fill=(196, 195, 194), outline=(94, 94, 94), width=3)
+    else:
+        draw.rectangle((0, 760, W, 920), fill=(105, 111, 121))
+        for x in range(-80, W + 80, 180):
+            draw.rounded_rectangle((x, 835, x + 105, 855), 8, fill=(247, 244, 210))
+        draw.rectangle((75, 235, 250, 555), fill=(209, 196, 180), outline=(84, 80, 74), width=4)
+        draw.rectangle((100, 260, 225, 430), fill=(191, 220, 233))
+        draw.rectangle((515, 430, 555, 615), fill=(98, 62, 34))
+        draw.ellipse((480, 355, 590, 470), fill=(63, 132, 70))
+    draw.rectangle((0, 910, W, 930), fill=(56, 58, 63))
 
 
-def draw_exclamation(draw, x, y, size=90):
-    draw.text((x, y), "!!!", font=pick_font(FONT_BOLD, size), fill=(220, 40, 40))
+def phone(draw, x, y, s=1.0, alert=False):
+    w, h = int(118*s), int(208*s)
+    draw.rounded_rectangle((x, y, x+w, y+h), 20, fill=(27, 29, 34), outline=(7, 7, 8), width=4)
+    sx, sy = x+10, y+16
+    draw.rounded_rectangle((sx, sy, x+w-10, y+h-16), 11, fill=(225, 241, 252))
+    draw.rectangle((sx+14, sy+40, x+w-24, sy+49), fill=(91, 137, 218))
+    draw.rectangle((sx+14, sy+66, x+w-42, sy+74), fill=(160, 173, 187))
+    draw.rectangle((sx+14, sy+91, x+w-34, sy+99), fill=(160, 173, 187))
+    draw.text((sx+15, sy+12), "98%", font=TINY, fill=C["red"] if alert else C["muted"])
 
 
-def draw_stickman(draw, cx, ground, t, mood="normal", scale=1.0, bounce=0):
-    cx += int(math.sin(t * math.tau) * 14)
-    ground += int(math.sin(t * math.tau * 2) * bounce)
+def exclaim(draw, x, y, size=72):
+    draw.text((x, y), "!!!", font=ft(FONT_BOLD, size), fill=C["red"])
 
-    head_r = int(44 * scale)
-    shoulder = ground - int(285 * scale)
-    hip = ground - int(135 * scale)
-    lw = max(3, int(7 * scale))
 
-    draw.ellipse(
-        (cx - head_r, shoulder - 105 * scale, cx + head_r, shoulder - 105 * scale + 2 * head_r),
-        outline=(25, 25, 25),
-        width=lw,
-    )
-    draw.line((cx, shoulder - 15 * scale, cx, hip), fill=(25, 25, 25), width=lw)
+def face(draw, cx, cy, mood, speaking, frame, s):
+    ey = int(cy - 10*s)
+    dx = int(18*s)
+    dot = max(2, int(4*s))
+    if mood in {"shock", "panic"}:
+        r = dot + 4
+        draw.ellipse((cx-dx-r, ey-r, cx-dx+r, ey+r), fill=C["ink"])
+        draw.ellipse((cx+dx-r, ey-r, cx+dx+r, ey+r), fill=C["ink"])
+    elif frame % 54 < 3:
+        draw.line((cx-dx-8, ey, cx-dx+8, ey), fill=C["ink"], width=max(2, dot))
+        draw.line((cx+dx-8, ey, cx+dx+8, ey), fill=C["ink"], width=max(2, dot))
+    else:
+        draw.ellipse((cx-dx-dot, ey-dot, cx-dx+dot, ey+dot), fill=C["ink"])
+        draw.ellipse((cx+dx-dot, ey-dot, cx+dx+dot, ey+dot), fill=C["ink"])
 
-    if mood == "panic":
-        arms = [(-125, -55), (125, -70)]
-        legs = [(-100, 10), (105, 15)]
-    elif mood == "run":
-        swing = math.sin(t * math.tau * 2) * 55
-        arms = [(-85, 50 + swing), (85, 35 - swing)]
-        legs = [(-90 - swing * 0.2, 0), (90 + swing * 0.2, 15)]
+    if mood in {"happy", "proud", "laugh"}:
+        draw.arc((cx-24, ey+10, cx+24, ey+44), 20, 160, fill=C["ink"], width=max(2, dot))
+    elif mood in {"sad", "tired"}:
+        draw.arc((cx-24, ey+22, cx+24, ey+58), 195, 345, fill=C["ink"], width=max(2, dot))
+    elif speaking:
+        open_now = (frame // 3) % 2 == 0
+        if open_now:
+            draw.ellipse((cx-8, ey+28, cx+8, ey+48), fill=C["ink"])
+        else:
+            draw.line((cx-10, ey+39, cx+10, ey+39), fill=C["ink"], width=max(2, dot))
+    else:
+        draw.line((cx-10, ey+39, cx+10, ey+39), fill=C["ink"], width=max(2, dot))
+
+
+def character(draw, x, ground, t, role, mood, speaking, frame, s=1.0):
+    body = C["hero"] if role == "hero" else C["mom"]
+    shirt = C["hero_light"] if role == "hero" else C["mom_light"]
+    ph = t * math.tau
+
+    if mood == "run":
+        swing = math.sin(ph*2.2) * 70
+        arms = [(-92, 35+swing), (92, 42-swing)]
+        legs = [(-78-swing*.35, 5), (78+swing*.35, 7)]
+    elif mood == "panic":
+        arms = [(-114, -64), (114, -80)]
+        legs = [(-88, 4), (88, 8)]
     elif mood == "celebrate":
-        arms = [(-115, -105), (115, -110)]
-        legs = [(-75, 10), (75, 5)]
+        arms = [(-112, -106), (112, -106)]
+        legs = [(-76, 5), (76, 5)]
+    elif mood == "scold":
+        arms = [(-85, 2), (112, -48)]
+        legs = [(-70, 3), (70, 3)]
+    elif mood == "phone":
+        arms = [(-82, 28), (55, -10)]
+        legs = [(-70, 3), (70, 3)]
     elif mood == "sad":
-        arms = [(-80, 55), (80, 55)]
-        legs = [(-62, 0), (62, 0)]
+        arms = [(-78, 46), (78, 46)]
+        legs = [(-62, 3), (62, 3)]
     else:
-        arms = [(-95, 35), (95, 35)]
-        legs = [(-70, 0), (70, 0)]
+        sway = math.sin(ph)*10
+        arms = [(-87, 34+sway), (87, 34-sway)]
+        legs = [(-68, 3), (68, 3)]
 
-    for dx, dy in arms:
-        draw.line((cx, shoulder, cx + int(dx * scale), shoulder + int(dy * scale)), fill=(25, 25, 25), width=lw)
+    torso = ground - int(285*s)
+    hip = ground - int(125*s)
+    head = torso - int(102*s)
+    hr = int(44*s)
+    lw = max(3, int(7*s))
+
+    draw.ellipse((x-int(58*s), ground+3, x+int(58*s), ground+22), fill=(202, 202, 204))
     for dx, dy in legs:
-        draw.line((cx, hip, cx + int(dx * scale), ground + int(10 * scale)), fill=(25, 25, 25), width=lw)
+        draw.line((x, hip, x+int(dx*s), ground+int(dy*s)), fill=C["ink"], width=lw)
+        sx, sy = x+int(dx*s), ground+int(dy*s)
+        draw.line((sx-2, sy, sx+18, sy), fill=C["ink"], width=max(2, lw-1))
 
-    eye_y = int(shoulder - 92 * scale)
-    eye_dx = int(18 * scale)
-    if mood == "sad":
-        draw.arc((cx - 24, eye_y + 16, cx + 24, eye_y + 52), 200, 340, fill=(25, 25, 25), width=max(2, lw // 2))
-    elif mood in ("panic", "surprise"):
-        draw.ellipse((cx - eye_dx - 6, eye_y - 6, cx - eye_dx + 6, eye_y + 6), fill=(25, 25, 25))
-        draw.ellipse((cx + eye_dx - 6, eye_y - 6, cx + eye_dx + 6, eye_y + 6), fill=(25, 25, 25))
-    else:
-        draw.ellipse((cx - eye_dx - 4, eye_y - 4, cx - eye_dx + 4, eye_y + 4), fill=(25, 25, 25))
-        draw.ellipse((cx + eye_dx - 4, eye_y - 4, cx + eye_dx + 4, eye_y + 4), fill=(25, 25, 25))
+    draw.rounded_rectangle((x-int(38*s), torso, x+int(38*s), hip), 22, fill=shirt, outline=body, width=max(2, int(4*s)))
+    for dx, dy in arms:
+        draw.line(
+            (x, torso+int(48*s), x+int(dx*s), torso+int(48*s)+int(dy*s)),
+            fill=C["ink"], width=lw,
+        )
+
+    draw.ellipse((x-hr, head-hr, x+hr, head+hr), fill=C["skin"], outline=C["ink"], width=lw)
+    draw.arc((x-hr, head-int(hr*.72)-10, x+hr, head-int(hr*.72)+50), 190, 350, fill=body, width=max(3, lw))
+    face(draw, x, head, mood, speaking, frame, s)
 
 
-def scene_story(topic):
+def caption_box(draw, text, p):
+    f = ft(FONT_BOLD, 34 + int(2*math.sin(math.pi*p)))
+    lines = wrap(draw, text, f, 575)
+    lh = 41
+    h = 32 + lh*len(lines)
+    top = 1000
+    draw.rounded_rectangle((40, top, 680, top+h), 28, fill=C["white"], outline=C["ink"], width=3)
+    for i, line in enumerate(lines):
+        draw.text(((W-tw(draw, line, f))//2, top+15+i*lh), line, font=f, fill=C["ink"])
+
+
+def caption_chunks(text, dur):
+    words = text.split()
+    if not words:
+        return []
+    size = 3 if len(words) <= 12 else 4
+    chunks = [" ".join(words[i:i+size]) for i in range(0, len(words), size)]
+    weights = [max(1, len(c.replace(" ", ""))) for c in chunks]
+    total = sum(weights)
+    out, t = [], 0.0
+    for wt, chunk in zip(weights, chunks):
+        span = dur*wt/total
+        out.append((t, min(dur, t+span), chunk))
+        t += span
+    return out
+
+
+def camera(img, scene_index, t):
+    # A gentle push/pan prevents the composition from feeling like a frozen card.
+    zoom = 1.0 + 0.045*math.sin(math.pi*t) + (0.035 if scene_index in {3, 6} else 0)
+    pan = int((18 if scene_index % 2 else -18) * math.sin(math.pi*t))
+    nw, nh = int(W*zoom), int(H*zoom)
+    scaled = img.resize((nw, nh), Image.Resampling.LANCZOS)
+    left = max(0, min(nw-W, (nw-W)//2 + pan))
+    top = max(0, min(nh-H, (nh-H)//2 + int(10*math.sin(math.pi*t))))
+    return scaled.crop((left, top, left+W, top+H))
+
+
+def story(topic):
+    t = " ".join(topic.split()).strip()
     return [
-        {
-            "title": topic,
-            "caption": "Bas 10 second ke liye...",
-            "mood": "surprise",
-            "dialogue": f"{topic} dekh ke laga, bas das second ka kaam hai. Itna bhi kya ho jayega?",
-            "phone": True,
-        },
-        {
-            "title": "PLAN",
-            "caption": "FULL CONTROL 😎",
-            "mood": "normal",
-            "dialogue": "Maine confidence se bola: tension hi kya hai? Sab mere control mein hai.",
-        },
-        {
-            "title": "PROBLEM",
-            "caption": "Oh... ye nahi socha tha.",
-            "mood": "panic",
-            "dialogue": "Phir ek chhoti si problem aayi. Aur us problem ne poore plan ko welcome bol diya.",
-        },
-        {
-            "title": "CHAOS",
-            "caption": "PLAN = GONE 😂",
-            "mood": "run",
-            "dialogue": "Ab main idhar udhar bhaag raha tha, jaise solution nahi, Olympics ka trial chal raha ho.",
-        },
-        {
-            "title": "PLOT TWIST",
-            "caption": "ASLI PROBLEM = MAIN",
-            "mood": "sad",
-            "dialogue": "Tab samajh aaya: problem situation nahi thi. Meri overconfidence hi villain thi.",
-        },
-        {
-            "title": "PUNCHLINE",
-            "caption": "BACKUP PLAN RAKHO! 😂",
-            "mood": "celebrate",
-            "dialogue": "Agli baar hero banne se pehle backup plan. Warna stickman bhi phas jayega, boss.",
-        },
+        dict(id="hook", bg="room", shot="close", role="hero", voice="narrator", mood="happy",
+             caption="BAS DO MINUTE...", line=f"{t} ka sabse dangerous part pata hai? Jab dimaag bolta hai - bas do minute aur.", event="pop"),
+        dict(id="confidence", bg="room", shot="medium", role="hero", voice="hero", mood="proud",
+             caption="FULL CONFIDENCE", line="Maine bhi wahi socha. Do minute. Full control. Kya hi galat ho sakta hai?", event="pop"),
+        dict(id="interrupt", bg="room", shot="wide", role="mom", voice="mom", mood="scold",
+             caption="KYA KAR RAHE HO?", line="Do minute? Beta, ye phone tumhare haath mein kab se hai?", event="hit"),
+        dict(id="excuse", bg="room", shot="medium", role="hero", voice="hero", mood="shock",
+             caption="MAIN? PHONE? NAHI TOH...", line="Maa, actually main phone nahi chala raha tha. Main... research kar raha tha.", event="whoosh"),
+        dict(id="proof", bg="room", shot="close", role="mom", voice="mom", mood="laugh",
+             caption="ACHHA?", line="Research? Toh ye teen ghante ka screen time kis subject ka tha?", event="hit"),
+        dict(id="panic", bg="hall", shot="shake", role="hero", voice="hero", mood="panic",
+             caption="THREE HOURS?!", line="Teen ghante?! Impossible. Phone bhi jhoot bolta hai kya?", event="impact"),
+        dict(id="realisation", bg="hall", shot="close", role="hero", voice="narrator", mood="sad",
+             caption="ASLI PROBLEM...", line="Aur us moment mujhe samajh aaya: problem phone nahi tha. Overconfidence tha.", event="whoosh"),
+        dict(id="punchline", bg="street", shot="wide", role="hero", voice="hero", mood="celebrate",
+             caption="BACKUP PLAN RAKHO", line="Agli baar sirf do minute bolne se pehle timer lagaunga. Varna mera phone hi mera boss ban jayega.", event="celebrate"),
     ]
 
 
-def render_frame(scene_idx, scene, local):
-    img = Image.new("RGB", (W, H), (247, 249, 252))
-    draw = ImageDraw.Draw(img)
+def draw_scene(scene, local, dur, scene_number, total, frame):
+    base = Image.new("RGB", (W, H), C["white"])
+    draw = ImageDraw.Draw(base)
+    background(draw, scene["bg"])
+    t = local/max(dur, 0.001)
+    speaking = True
 
-    # Scene-specific tint without heavy visual clutter.
-    tints = [
-        (247, 249, 252),
-        (255, 249, 235),
-        (240, 249, 255),
-        (252, 242, 247),
-        (245, 245, 255),
-        (242, 250, 243),
-    ]
-    img.paste(tints[scene_idx - 1], (0, 0, W, H))
-    draw = ImageDraw.Draw(img)
+    # Short title card on entry.
+    if t < 0.35:
+        alpha = int(255*(1 - t/0.35))
+        overlay = Image.new("RGBA", (W, H), (255,255,255,0))
+        od = ImageDraw.Draw(overlay)
+        od.rounded_rectangle((34, 48, 686, 138), 26, fill=(255,255,255,alpha), outline=(24,25,30,alpha), width=3)
+        base = Image.alpha_composite(base.convert("RGBA"), overlay).convert("RGB")
+        draw = ImageDraw.Draw(base)
+        centered(draw, scene["caption"], 72, SUBTITLE, 600)
 
-    # Kinetic top bar.
-    draw.rectangle((0, 0, W, 105), fill=(30, 30, 30))
-    draw.text((28, 30), f"STICKMAN STORY   {scene_idx}/6", font=SMALL, fill="white")
+    if scene["shot"] == "wide":
+        hx = int(230 + 55*math.sin(math.pi*t))
+        mx = int(490 - 40*math.sin(math.pi*t))
+        character(draw, hx, 900, t, "hero", "phone" if scene["id"]=="interrupt" else "normal", scene["voice"]=="hero", frame, 0.92)
+        character(draw, mx, 900, t+0.15, "mom", "scold" if scene["id"] in {"interrupt","proof"} else "normal", scene["voice"]=="mom", frame, 0.98)
+        if scene["id"] == "interrupt":
+            phone(draw, 188, 625, 0.72, True)
+    elif scene["shot"] == "shake":
+        shake = int(13*math.sin(t*math.tau*7))
+        character(draw, 360+shake, 900, t*1.7, "hero", scene["mood"], True, frame, 1.08)
+        exclaim(draw, 88, 560, 68)
+        exclaim(draw, 525, 600, 68)
+    else:
+        role = scene["role"] if scene["role"] in {"hero","mom"} else "hero"
+        x = 300 if role == "mom" else 420
+        ground = 950 if scene["shot"] == "close" else 900
+        scale = 1.20 if scene["shot"] == "close" else 1.04
+        x += int(18*math.sin(math.pi*2*t))
+        character(draw, x, ground, t, role, scene["mood"], True, frame, scale)
 
-    t = local / max(1, FRAMES_PER_SCENE - 1)
+        if scene["id"] == "hook":
+            phone(draw, 474, 575, 0.80, True)
+            exclaim(draw, 530, 515, 58)
+        elif scene["id"] == "confidence":
+            draw.rounded_rectangle((395, 525, 625, 620), 22, fill=C["white"], outline=C["hero"], width=3)
+            centered(draw, "FULL CONTROL", 554, SMALL, 205, C["hero"])
+        elif scene["id"] == "excuse":
+            phone(draw, 355, 660, 0.72, True)
+        elif scene["id"] == "proof":
+            draw.rounded_rectangle((190, 515, 390, 610), 22, fill=C["white"], outline=C["mom"], width=3)
+            centered(draw, "ACHHA?", 548, SMALL, 165, C["mom"])
+        elif scene["id"] == "realisation":
+            centered(draw, "...", 565, TITLE, 150, C["muted"])
 
-    # Simple simulated camera movement.
-    zoom = 1.0 + 0.07 * math.sin(t * math.pi)
-    cx = 360 + int(35 * math.sin(t * math.tau))
-    ground = 890
+    chunks = caption_chunks(scene["line"], dur)
+    active = chunks[-1][2] if chunks else ""
+    for a, b, text in chunks:
+        if a <= local <= b:
+            active = text
+            caption_box(draw, text, (local-a)/max(0.001, b-a))
+            break
+    if not active:
+        caption_box(draw, active, 1.0)
 
-    center_text(draw, scene["title"], 145, TITLE, 620)
-    draw_stickman(draw, cx, ground, t, scene["mood"], zoom, bounce=8)
+    total_p = (scene_number-1+t)/total
+    draw.rounded_rectangle((46, 1180, 674, 1193), 8, fill=(206,207,212))
+    draw.rounded_rectangle((46, 1180, 46+int(628*total_p), 1193), 8, fill=C["ink"])
 
-    if scene.get("phone"):
-        draw_phone(draw, cx + 80, 610, 0.85)
-        draw_exclamation(draw, 505, 565, 60)
+    frame_img = camera(base, scene_number, t)
 
-    if scene_idx == 3:
-        draw_exclamation(draw, 120, 610, 80)
-    if scene_idx == 4:
-        for n in range(5):
-            yy = 650 + n * 42
-            draw.line((70, yy, 230, yy), fill=(130, 130, 130), width=5)
-    if scene_idx == 5:
-        draw.text((300, 600), "…", font=pick_font(FONT_BOLD, 90), fill=(80, 80, 80))
-
-    # Caption card.
-    card = (55, 995, 665, 1140)
-    draw.rounded_rectangle(card, radius=28, fill=(255, 255, 255), outline=(45, 45, 45), width=4)
-    center_text(draw, scene["caption"], 1033, CAPTION, 560)
-
-    # Progress bar.
-    progress = ((scene_idx - 1) + t) / SCENES
-    draw.rounded_rectangle((55, 1175, 665, 1192), radius=8, fill=(205, 205, 205))
-    draw.rounded_rectangle((55, 1175, 55 + int(610 * progress), 1192), radius=8, fill=(25, 25, 25))
-    draw.text((30, 1210), "Original stickman entertainment prototype", font=TINY, fill=(100, 100, 100))
-    return img
+    # Tiny beat flash makes the hard cuts feel intentional.
+    if local < 0.10 and scene["event"] in {"hit","impact"}:
+        flash = max(0, int(95*(1-local/0.10)))
+        ov = Image.new("RGBA", (W, H), (255,255,255,flash))
+        frame_img = Image.alpha_composite(frame_img.convert("RGBA"), ov).convert("RGB")
+    return frame_img
 
 
-async def choose_voice():
+async def choose_voice(locale, gender, preferred):
     voices = await edge_tts.list_voices()
-    candidates = [
-        "hi-IN-SwaraNeural",
-        "hi-IN-KunalNeural",
-        "hi-IN-MadhurNeural",
-        "hi-IN-AaravNeural",
-        "hi-IN-AnanyaNeural",
-    ]
-    available = {v["ShortName"] for v in voices}
-    for name in candidates:
+    available = {v["ShortName"]: v for v in voices}
+    for name in preferred:
         if name in available:
             return name
-    hindi = [v["ShortName"] for v in voices if v.get("Locale") == "hi-IN"]
-    if hindi:
-        return hindi[0]
-    raise RuntimeError("No hi-IN Edge TTS voice is currently available.")
+    matches = [v["ShortName"] for v in voices if v.get("Locale")==locale and v.get("Gender")==gender]
+    if matches:
+        return matches[0]
+    fallback = [v["ShortName"] for v in voices if v.get("Locale")==locale]
+    if fallback:
+        return fallback[0]
+    raise RuntimeError("No hi-IN neural voice available.")
 
 
-async def make_voice(scene_list):
+async def make_voice(story_data):
     VOICE_DIR.mkdir(parents=True, exist_ok=True)
-    voice = await choose_voice()
+    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
-    for i, scene in enumerate(scene_list, start=1):
-        communicate = edge_tts.Communicate(
-            scene["dialogue"],
-            voice=voice,
-            rate="+10%",
-            pitch="+2Hz",
-            volume="+0%",
-        )
-        await communicate.save(str(VOICE_DIR / f"scene-{i}.mp3"))
+    narrator = await choose_voice("hi-IN", "Female", ["hi-IN-SwaraNeural", "hi-IN-AnanyaNeural"])
+    hero = await choose_voice("hi-IN", "Male", ["hi-IN-MadhurNeural", "hi-IN-KunalNeural", "hi-IN-AaravNeural"])
+    mom = await choose_voice("hi-IN", "Female", ["hi-IN-AnanyaNeural", "hi-IN-SwaraNeural", "hi-IN-AartiNeural"])
 
-    wav_parts = []
-    for i in range(1, len(scene_list) + 1):
-        src = VOICE_DIR / f"scene-{i}.mp3"
-        dst = VOICE_DIR / f"scene-{i}.wav"
-        subprocess.run(
-            [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                "-i", str(src),
-                "-af", f"apad,atrim=duration={SCENE_SECONDS}",
-                "-ar", "48000", "-ac", "1", str(dst),
-            ],
-            check=True,
-        )
-        wav_parts.append(dst)
+    voice_map = {"narrator": narrator, "hero": hero, "mom": mom}
+    durations, paths = [], []
 
-    with wave.open(str(VOICE), "wb") as out:
-        with wave.open(str(wav_parts[0]), "rb") as first:
-            out.setnchannels(first.getnchannels())
-            out.setsampwidth(first.getsampwidth())
-            out.setframerate(first.getframerate())
-        for part in wav_parts:
-            with wave.open(str(part), "rb") as wf:
-                out.writeframes(wf.readframes(wf.getnframes()))
+    for i, scene in enumerate(story_data, 1):
+        mp3 = VOICE_DIR / f"scene-{i}.mp3"
+        wav = VOICE_DIR / f"scene-{i}.wav"
+        selected = voice_map[scene["voice"]]
+        rate = "+2%" if scene["voice"] == "mom" else "+6%"
+        pitch = "+2Hz" if scene["voice"] == "mom" else ("0Hz" if scene["voice"] == "hero" else "+1Hz")
+        await edge_tts.Communicate(
+            scene["line"], voice=selected, rate=rate, pitch=pitch, volume="+0%"
+        ).save(str(mp3))
+        run([
+            "ffmpeg","-y","-hide_banner","-loglevel","error","-i",str(mp3),
+            "-af","loudnorm=I=-16:TP=-1.5:LRA=9","-ar","48000","-ac","1",str(wav)
+        ])
+        durations.append(duration(wav))
+        paths.append(wav)
+
+    lst = AUDIO_DIR / "concat.txt"
+    lst.write_text("".join(f"file '{p.as_posix()}'\n" for p in paths), encoding="utf-8")
+    run([
+        "ffmpeg","-y","-hide_banner","-loglevel","error","-f","concat","-safe","0",
+        "-i",str(lst),"-ar","48000","-ac","1","-c:a","pcm_s16le",str(VOICE_WAV)
+    ])
+    return durations, voice_map
+
+
+def write_frames(story_data, durations):
+    FRAMES.mkdir(parents=True, exist_ok=True)
+    idx = 0
+    for sn, (scene, dur) in enumerate(zip(story_data, durations), 1):
+        count = max(1, math.ceil(dur*FPS))
+        for n in range(count):
+            local = n/FPS
+            draw_scene(scene, local, dur, sn, len(story_data), idx).save(
+                FRAMES/f"frame-{idx:06d}.png", optimize=True
+            )
+            idx += 1
 
 
 def render_video():
-    FRAMES.mkdir(parents=True, exist_ok=True)
-    story = scene_story(TOPIC)
-    (BUILD / "story.json").write_text(json.dumps(story, ensure_ascii=False, indent=2), encoding="utf-8")
+    run([
+        "ffmpeg","-y","-hide_banner","-loglevel","error",
+        "-framerate",str(FPS),"-i",str(FRAMES/"frame-%06d.png"),
+        "-c:v","libx264","-preset","medium","-crf","19","-pix_fmt","yuv420p",
+        "-movflags","+faststart",str(VIDEO_ONLY)
+    ])
 
-    for frame_no in range(FRAMES_PER_SCENE * SCENES):
-        scene_idx = frame_no // FRAMES_PER_SCENE + 1
-        local = frame_no % FRAMES_PER_SCENE
-        render_frame(scene_idx, story[scene_idx - 1], local).save(
-            FRAMES / f"frame-{frame_no:05d}.png", optimize=True
-        )
 
-    subprocess.run(
-        [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-framerate", str(FPS),
-            "-i", str(FRAMES / "frame-%05d.png"),
-            "-c:v", "libx264",
-            "-pix_fmt", "yuv420p",
-            "-movflags", "+faststart",
-            str(VIDEO),
-        ],
-        check=True,
-    )
-    return story
+def read_wav(path):
+    with wave.open(str(path),"rb") as wf:
+        ch, rate, width = wf.getnchannels(), wf.getframerate(), wf.getsampwidth()
+        if (ch, rate, width) != (1, 48000, 2):
+            raise RuntimeError("Unexpected normalized audio format")
+        return array("h", wf.readframes(wf.getnframes())), rate
+
+
+def mix_audio(story_data, durations):
+    samples, rate = read_wav(VOICE_WAV)
+    out = array("h", samples)
+
+    scene_start = 0.0
+    notes = [220.0, 196.0, 174.61, 196.0]
+    note_len = 1.6
+
+    def add_tone(start, secs, freq, gain):
+        begin = int(start*rate)
+        length = min(int(secs*rate), max(0, len(out)-begin))
+        for i in range(length):
+            env = min(1.0, i/(rate*0.012), (length-i)/(rate*0.06))
+            val = math.sin(2*math.pi*freq*i/rate)*32767*gain*env
+            out[begin+i] = max(-32768, min(32767, int(out[begin+i]+val)))
+
+    # Soft continuous music bed.
+    for i in range(len(out)):
+        t = i/rate
+        chord = notes[int(t/note_len)%len(notes)]
+        pad = (
+            math.sin(2*math.pi*chord*t)
+            + 0.55*math.sin(2*math.pi*chord*1.5*t)
+        ) * 32767 * 0.028
+        out[i] = max(-32768, min(32767, int(out[i] + pad)))
+
+    for scene, dur in zip(story_data, durations):
+        if scene["event"] in {"pop","whoosh"}:
+            add_tone(scene_start, 0.10, 620, 0.055)
+        elif scene["event"] == "hit":
+            add_tone(scene_start, 0.11, 105, 0.085)
+        elif scene["event"] == "impact":
+            add_tone(scene_start, 0.15, 72, 0.13)
+        elif scene["event"] == "celebrate":
+            add_tone(scene_start, 0.12, 760, 0.07)
+            add_tone(scene_start+0.10, 0.12, 940, 0.055)
+        scene_start += dur
+
+    with wave.open(str(MIX_WAV),"wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        wf.writeframes(out.tobytes())
 
 
 def mux():
-    subprocess.run(
-        [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-i", str(VIDEO),
-            "-i", str(VOICE),
-            "-map", "0:v:0",
-            "-map", "1:a:0",
-            "-c:v", "copy",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-shortest",
-            "-movflags", "+faststart",
-            str(OUT),
-        ],
-        check=True,
-    )
+    d = duration(VIDEO_ONLY)
+    run([
+        "ffmpeg","-y","-hide_banner","-loglevel","error",
+        "-i",str(VIDEO_ONLY),"-i",str(MIX_WAV),
+        "-map","0:v:0","-map","1:a:0","-c:v","copy","-c:a","aac","-b:a","160k",
+        "-shortest","-movflags","+faststart",str(OUT)
+    ])
+
+
+async def build(topic):
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        raise SystemExit("FFmpeg and ffprobe are required.")
+
+    shutil.rmtree(FRAMES, ignore_errors=True)
+    shutil.rmtree(VOICE_DIR, ignore_errors=True)
+    shutil.rmtree(AUDIO_DIR, ignore_errors=True)
+    BUILD.mkdir(parents=True, exist_ok=True)
+
+    story_data = story(topic)
+    durations, voice_map = await make_voice(story_data)
+    total = sum(durations)
+
+    if not MIN_DURATION <= total <= MAX_DURATION:
+        raise RuntimeError(f"Narration length {total:.2f}s outside {MIN_DURATION}-{MAX_DURATION}s")
+
+    timeline, offset = [], 0.0
+    for scene, dur in zip(story_data, durations):
+        timeline.append({
+            "id": scene["id"],
+            "start_seconds": round(offset, 3),
+            "duration_seconds": round(dur, 3),
+            "end_seconds": round(offset+dur, 3),
+            "speaker": scene["voice"],
+            "voice": voice_map[scene["voice"]],
+            "caption": scene["caption"],
+            "event": scene["event"],
+        })
+        offset += dur
+
+    TIMELINE.write_text(json.dumps({
+        "phase": 2,
+        "topic": topic,
+        "format": {"width": W, "height": H, "fps": FPS},
+        "timeline": timeline,
+        "voice_map": voice_map,
+        "quality_target": "polished original 2D entertainment Short",
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    write_frames(story_data, durations)
+    render_video()
+    mix_audio(story_data, durations)
+    mux()
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--topic", required=True)
-    args = parser.parse_args()
-
-    global TOPIC
-    TOPIC = args.topic.strip()[:90]
-    if not TOPIC:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--topic", required=True)
+    topic = " ".join(ap.parse_args().topic.split()).strip()
+    if not topic:
         raise SystemExit("Topic cannot be empty.")
-    if shutil.which("ffmpeg") is None:
-        raise SystemExit("FFmpeg is required.")
-
-    BUILD.mkdir(parents=True, exist_ok=True)
-    shutil.rmtree(FRAMES, ignore_errors=True)
-    shutil.rmtree(VOICE_DIR, ignore_errors=True)
-
-    story = render_video()
-    asyncio.run(make_voice(story))
-    mux()
-
-    if not OUT.exists() or OUT.stat().st_size < 20000:
+    asyncio.run(build(topic))
+    if not OUT.exists() or OUT.stat().st_size < 30000:
         raise RuntimeError("Final video was not created correctly.")
-
     print(f"Created: {OUT}")
-    print(f"Voice scenes: {len(story)}")
-    print("TTS backend: Edge online TTS, Hindi voice selected dynamically")
+    print(f"Timeline: {TIMELINE}")
 
 
 if __name__ == "__main__":

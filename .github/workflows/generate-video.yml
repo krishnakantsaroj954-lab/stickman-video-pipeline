@@ -14,13 +14,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: stickman-video-${{ github.ref }}
+  group: stickman-video-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   render:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -38,12 +38,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg
 
-      - name: Verify FFmpeg
+      - name: Verify toolchain
         run: |
           ffmpeg -version
           ffprobe -version
+          python -m py_compile scripts/generate_video.py scripts/quality_check.py
 
-      - name: Generate entertainment Short
+      - name: Generate Phase 2 entertainment Short
         env:
           TOPIC: "${{ inputs.topic || 'Mummy ke saamne phone chalaate hue pakde jaana' }}"
         run: python scripts/generate_video.py --topic "$TOPIC"
@@ -51,15 +52,13 @@ jobs:
       - name: Run real MP4 quality gate
         run: python scripts/quality_check.py build/stickman-video.mp4
 
-      - name: Validate MP4
-        run: |
-          test -s build/stickman-video.mp4
-          ffprobe -v error             -show_entries format=duration             -show_entries stream=codec_name,width,height             -of default=noprint_wrappers=1             build/stickman-video.mp4
-
-      - name: Upload video artifact
+      - name: Upload rendered Short and diagnostics
         uses: actions/upload-artifact@v4
         with:
-          name: stickman-short
-          path: build/stickman-video.mp4
+          name: stickman-short-phase2
+          path: |
+            build/stickman-video.mp4
+            build/story.json
+            quality-report.json
           if-no-files-found: error
           retention-days: 7
