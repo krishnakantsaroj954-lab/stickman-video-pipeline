@@ -1,4 +1,4 @@
-name: Generate Stickman Entertainment Short
+name: Generate Cartoon Entertainment Short — Quality Test
 
 on:
   pull_request:
@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: stickman-video-${{ github.event.pull_request.number || github.ref }}
+  group: cartoon-video-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -50,12 +50,12 @@ jobs:
         run: python scripts/generate_video.py --topic "$TOPIC"
 
       - name: Run real MP4 quality gate
-        run: python scripts/quality_check.py build/stickman-video.mp4
+        run: python scripts/quality_check.py build/cartoon-short.mp4
 
       - name: Upload rendered Short and diagnostics
         uses: actions/upload-artifact@v4
         with:
-          name: stickman-short-phase2
+          name: cartoon-short-quality-test
           path: |
             build/stickman-video.mp4
             build/story.json
