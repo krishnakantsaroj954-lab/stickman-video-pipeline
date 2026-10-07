@@ -1,14 +1,12 @@
-name: Generate Stickman Video
+name: Generate Stickman Entertainment Short
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+    workflow_dispatch:
     inputs:
       topic:
-        description: "Topic for the stickman lesson"
+        description: "Funny or relatable topic for the Short"
         required: true
-        default: "Newton's Third Law"
+        default: "Mummy ke saamne phone chalaate hue pakde jaana"
         type: string
 
 permissions:
@@ -36,7 +34,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip Pillow
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg
+          sudo apt-get install -y --no-install-recommends ffmpeg espeak
 
       - name: Verify FFmpeg
         run: |
@@ -48,6 +46,9 @@ jobs:
           TOPIC: "${{ inputs.topic || 'Smoke Test - Newtons Third Law' }}"
         run: python scripts/generate_video.py --topic "$TOPIC"
 
+      - name: Run real MP4 quality gate
+        run: python scripts/quality_check.py build/stickman-video.mp4
+
       - name: Validate MP4
         run: |
           test -s build/stickman-video.mp4
@@ -56,7 +57,7 @@ jobs:
       - name: Upload video artifact
         uses: actions/upload-artifact@v4
         with:
-          name: stickman-video
+          name: stickman-short
           path: build/stickman-video.mp4
           if-no-files-found: error
           retention-days: 7
