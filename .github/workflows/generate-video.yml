@@ -1,7 +1,7 @@
 name: Generate Stickman Entertainment Short
 
 on:
-    workflow_dispatch:
+  workflow_dispatch:
     inputs:
       topic:
         description: "Funny or relatable topic for the Short"
@@ -41,9 +41,9 @@ jobs:
           ffmpeg -version
           ffprobe -version
 
-      - name: Render video
+      - name: Generate entertainment Short
         env:
-          TOPIC: "${{ inputs.topic || 'Smoke Test - Newtons Third Law' }}"
+          TOPIC: "${{ inputs.topic || 'Mummy ke saamne phone chalaate hue pakde jaana' }}"
         run: python scripts/generate_video.py --topic "$TOPIC"
 
       - name: Run real MP4 quality gate
