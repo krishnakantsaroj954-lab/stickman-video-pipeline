@@ -1,9 +1,6 @@
 name: Generate Stickman Entertainment Short
 
 on:
-  push:
-    branches:
-      - phase2/animated-short-quality
   pull_request:
   workflow_dispatch:
     inputs:
@@ -17,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: stickman-video-\${{ github.ref }}
+  group: stickman-video-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -49,7 +46,7 @@ jobs:
 
       - name: Generate Phase 2 entertainment Short
         env:
-          TOPIC: "\${{ inputs.topic || 'Mummy ke saamne phone chalaate hue pakde jaana' }}"
+          TOPIC: "${{ inputs.topic || 'Mummy ke saamne phone chalaate hue pakde jaana' }}"
         run: python scripts/generate_video.py --topic "$TOPIC"
 
       - name: Run real MP4 quality gate
