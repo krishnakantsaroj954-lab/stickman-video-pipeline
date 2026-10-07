@@ -4,6 +4,8 @@ This repo is for original funny/relatable stickman entertainment videos. It is s
 
 Phase 1: build one real 45-second YouTube Short from a topic.
 
+Pipeline build revision: 2026-10-07 dependency-fix
+
 Flow: topic -> story -> stickman scenes -> Hindi voice -> captions -> SFX -> 9:16 MP4 -> quality gate -> artifact.
 
 Current prototype uses Pillow + FFmpeg + eSpeak Hindi. The eSpeak track is a real prototype voice, not a claim that a premium AI voice provider is connected.
