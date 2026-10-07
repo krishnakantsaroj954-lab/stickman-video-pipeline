@@ -1,0 +1,11 @@
+{
+  "name": "stickman-video-headless-proof",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "render:proof": "node scripts/render_proof.mjs"
+  },
+  "dependencies": {
+    "puppeteer": "25.12.0"
+  }
+}
