@@ -485,27 +485,22 @@ def make_voice(story_data):
     model_id = os.getenv("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2").strip()
 
     used_ids = set()
-    voice_map = {
-        "narrator": choose_voice(
-            api_key, "female",
-            ["Monika Sogam", "Devi", "Niraj"],
-            os.getenv("ELEVENLABS_NARRATOR_VOICE_ID", ""),
+    voice_map = {}
+
+    for role, gender, preferred_names, env_name in [
+        ("narrator", "female", ["Monika Sogam", "Devi", "Niraj"], "ELEVENLABS_NARRATOR_VOICE_ID"),
+        ("hero", "male", ["Bunty", "Raju", "Vikram", "Krishna Gupta"], "ELEVENLABS_HERO_VOICE_ID"),
+        ("mom", "female", ["Devi", "Monika Sogam"], "ELEVENLABS_MOM_VOICE_ID"),
+    ]:
+        voice_id = choose_voice(
+            api_key,
+            gender,
+            preferred_names,
+            os.getenv(env_name, ""),
             used_ids,
-        ),
-        "hero": choose_voice(
-            api_key, "male",
-            ["Bunty", "Raju", "Vikram", "Krishna Gupta"],
-            os.getenv("ELEVENLABS_HERO_VOICE_ID", ""),
-            used_ids,
-        ),
-        "mom": choose_voice(
-            api_key, "female",
-            ["Devi", "Monika Sogam"],
-            os.getenv("ELEVENLABS_MOM_VOICE_ID", ""),
-            used_ids,
-        ),
-    }
-    used_ids.update(voice_map.values())
+        )
+        voice_map[role] = voice_id
+        used_ids.add(voice_id)
 
     durations, paths = [], []
     for i, scene in enumerate(story_data, 1):
