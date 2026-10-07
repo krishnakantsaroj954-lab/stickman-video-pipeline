@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Original 2D Hindi/Hinglish entertainment Shorts renderer - Phase 2 polished pass."""
+"""Original 2D cartoon Hindi/Hinglish entertainment Shorts renderer - Phase 2 quality test."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from pathlib import Path
 import edge_tts
 from PIL import Image, ImageDraw, ImageFont
 
-W, H, FPS = 720, 1280, 18
-MIN_DURATION, MAX_DURATION = 35.0, 58.0
+W, H, FPS = 720, 1280, 24
+MIN_DURATION, MAX_DURATION = 30.0, 58.0
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
@@ -27,7 +27,7 @@ AUDIO_DIR = BUILD / "audio"
 VIDEO_ONLY = BUILD / "video-only.mp4"
 VOICE_WAV = AUDIO_DIR / "voice.wav"
 MIX_WAV = AUDIO_DIR / "mix.wav"
-OUT = BUILD / "stickman-video.mp4"
+OUT = BUILD / "cartoon-short.mp4"
 TIMELINE = BUILD / "story.json"
 
 FONT_BOLD = [
@@ -184,58 +184,179 @@ def face(draw, cx, cy, mood, speaking, frame, s):
         draw.line((cx-10, ey+39, cx+10, ey+39), fill=C["ink"], width=max(2, dot))
 
 
-def character(draw, x, ground, t, role, mood, speaking, frame, s=1.0):
-    body = C["hero"] if role == "hero" else C["mom"]
-    shirt = C["hero_light"] if role == "hero" else C["mom_light"]
-    ph = t * math.tau
+def _limb(draw, a, b, fill, width):
+    draw.line((a[0], a[1], b[0], b[1]), fill=fill, width=width)
+    r=max(5, width//2)
+    draw.ellipse((b[0]-r, b[1]-r, b[0]+r, b[1]+r), fill=fill)
 
-    if mood == "run":
-        swing = math.sin(ph*2.2) * 70
-        arms = [(-92, 35+swing), (92, 42-swing)]
-        legs = [(-78-swing*.35, 5), (78+swing*.35, 7)]
-    elif mood == "panic":
-        arms = [(-114, -64), (114, -80)]
-        legs = [(-88, 4), (88, 8)]
-    elif mood == "celebrate":
-        arms = [(-112, -106), (112, -106)]
-        legs = [(-76, 5), (76, 5)]
-    elif mood == "scold":
-        arms = [(-85, 2), (112, -48)]
-        legs = [(-70, 3), (70, 3)]
-    elif mood == "phone":
-        arms = [(-82, 28), (55, -10)]
-        legs = [(-70, 3), (70, 3)]
-    elif mood == "sad":
-        arms = [(-78, 46), (78, 46)]
-        legs = [(-62, 3), (62, 3)]
+
+def _hand(draw, x, y, r, fill):
+    draw.ellipse((x-r, y-r, x+r, y+r), fill=fill, outline=C["ink"], width=max(1, r//4))
+
+
+def _shoe(draw, x, y, side, s):
+    w=int(58*s); h=int(24*s)
+    if side < 0:
+        box=(x-w, y-h, x+8, y+6)
     else:
-        sway = math.sin(ph)*10
-        arms = [(-87, 34+sway), (87, 34-sway)]
-        legs = [(-68, 3), (68, 3)]
+        box=(x-8, y-h, x+w, y+6)
+    draw.rounded_rectangle(box, 10, fill=(38,39,44), outline=C["ink"], width=max(2,int(2*s)))
 
-    torso = ground - int(285*s)
-    hip = ground - int(125*s)
-    head = torso - int(102*s)
-    hr = int(44*s)
-    lw = max(3, int(7*s))
 
-    draw.ellipse((x-int(58*s), ground+3, x+int(58*s), ground+22), fill=(202, 202, 204))
-    for dx, dy in legs:
-        draw.line((x, hip, x+int(dx*s), ground+int(dy*s)), fill=C["ink"], width=lw)
-        sx, sy = x+int(dx*s), ground+int(dy*s)
-        draw.line((sx-2, sy, sx+18, sy), fill=C["ink"], width=max(2, lw-1))
+def _hair(draw, cx, cy, role, s):
+    dark=(35,30,29)
+    if role=="hero":
+        pts=[
+            (cx-int(42*s),cy-int(28*s)),(cx-int(30*s),cy-int(54*s)),
+            (cx-int(8*s),cy-int(68*s)),(cx+int(5*s),cy-int(48*s)),
+            (cx+int(24*s),cy-int(66*s)),(cx+int(44*s),cy-int(38*s)),
+            (cx+int(52*s),cy-int(8*s)),(cx-int(50*s),cy-int(6*s))
+        ]
+        draw.polygon(pts, fill=dark)
+    else:
+        draw.ellipse((cx+int(32*s), cy-int(62*s), cx+int(74*s), cy-int(20*s)), fill=dark, outline=C["ink"], width=max(2,int(2*s)))
+        draw.ellipse((cx-int(48*s),cy-int(58*s),cx+int(48*s),cy+int(8*s)), fill=dark)
+        draw.pieslice((cx-int(49*s),cy-int(71*s),cx+int(49*s),cy+int(30*s)), 185, 355, fill=dark)
 
-    draw.rounded_rectangle((x-int(38*s), torso, x+int(38*s), hip), 22, fill=shirt, outline=body, width=max(2, int(4*s)))
-    for dx, dy in arms:
-        draw.line(
-            (x, torso+int(48*s), x+int(dx*s), torso+int(48*s)+int(dy*s)),
-            fill=C["ink"], width=lw,
+
+def _cartoon_face(draw, cx, cy, mood, speaking, frame, s):
+    eye_y=cy-int(8*s)
+    ex=int(18*s)
+    er=max(3,int(5*s))
+    brow=max(2,int(4*s))
+
+    if mood in {"shock","panic"}:
+        draw.ellipse((cx-ex-er,eye_y-er,cx-ex+er,eye_y+er), fill=C["ink"])
+        draw.ellipse((cx+ex-er,eye_y-er,cx+ex+er,eye_y+er), fill=C["ink"])
+        draw.line((cx-ex-int(10*s),eye_y-int(13*s),cx-ex+int(8*s),eye_y-int(18*s)), fill=C["ink"], width=brow)
+        draw.line((cx+ex-int(8*s),eye_y-int(18*s),cx+ex+int(10*s),eye_y-int(13*s)), fill=C["ink"], width=brow)
+    else:
+        blink=(frame % 72) in (0,1,2)
+        if blink:
+            draw.line((cx-ex-int(7*s),eye_y,cx-ex+int(7*s),eye_y), fill=C["ink"], width=brow)
+            draw.line((cx+ex-int(7*s),eye_y,cx+ex+int(7*s),eye_y), fill=C["ink"], width=brow)
+        else:
+            for dx in (-ex,ex):
+                draw.ellipse((cx+dx-er,eye_y-er,cx+dx+er,eye_y+er), fill=C["white"], outline=C["ink"], width=max(1,brow//2))
+                pupil_x=cx+dx+int(2*s*math.sin(frame/10))
+                draw.ellipse((pupil_x-int(3*s),eye_y-int(3*s),pupil_x+int(3*s),eye_y+int(3*s)), fill=C["ink"])
+        if mood in {"scold","angry"}:
+            draw.line((cx-ex-int(8*s),eye_y-int(10*s),cx-ex+int(7*s),eye_y-int(5*s)), fill=C["ink"], width=brow)
+            draw.line((cx+ex-int(7*s),eye_y-int(5*s),cx+ex+int(8*s),eye_y-int(10*s)), fill=C["ink"], width=brow)
+
+    # Small nose plus expressive mouth.
+    draw.ellipse((cx-int(3*s),cy+int(7*s),cx+int(3*s),cy+int(13*s)), fill=(215,170,143))
+    if mood in {"happy","proud","laugh","celebrate"}:
+        draw.arc((cx-int(20*s),cy+int(14*s),cx+int(20*s),cy+int(44*s)), 15, 165, fill=C["ink"], width=max(2,int(3*s)))
+    elif mood in {"sad","tired"}:
+        draw.arc((cx-int(20*s),cy+int(24*s),cx+int(20*s),cy+int(50*s)), 195, 345, fill=C["ink"], width=max(2,int(3*s)))
+    elif speaking:
+        open_now=(frame//3)%2==0
+        if open_now:
+            draw.ellipse((cx-int(9*s),cy+int(19*s),cx+int(9*s),cy+int(43*s)), fill=C["ink"])
+            draw.ellipse((cx-int(5*s),cy+int(22*s),cx+int(5*s),cy+int(29*s)), fill=(248,176,176))
+        else:
+            draw.rounded_rectangle((cx-int(10*s),cy+int(27*s),cx+int(10*s),cy+int(34*s)), 3, fill=C["ink"])
+    else:
+        draw.line((cx-int(10*s),cy+int(31*s),cx+int(10*s),cy+int(31*s)), fill=C["ink"], width=max(2,int(3*s)))
+
+
+def character(draw, x, ground, t, role, mood, speaking, frame, s=1.0):
+    # Fully drawn cartoon character: head, hair, clothing, hands and shoes.
+    body = C["hero"] if role=="hero" else C["mom"]
+    skin = C["skin"]
+    ph=t*math.tau
+
+    if mood=="run":
+        swing=math.sin(ph*2.2)*62
+        arm_data=[(-92,28+swing),(92,40-swing)]
+        leg_data=[(-72-swing*.35,6),(72+swing*.35,8)]
+    elif mood=="panic":
+        arm_data=[(-118,-54),(118,-72)]
+        leg_data=[(-82,6),(82,8)]
+    elif mood=="celebrate":
+        arm_data=[(-112,-98),(112,-98)]
+        leg_data=[(-70,6),(70,6)]
+    elif mood=="scold":
+        arm_data=[(-82,22),(112,-48)]
+        leg_data=[(-68,5),(68,5)]
+    elif mood=="phone":
+        arm_data=[(-82,30),(62,-5)]
+        leg_data=[(-66,5),(66,5)]
+    elif mood=="sad":
+        arm_data=[(-75,43),(75,43)]
+        leg_data=[(-60,5),(60,5)]
+    else:
+        sway=math.sin(ph)*9
+        arm_data=[(-84,30+sway),(84,30-sway)]
+        leg_data=[(-64,5),(64,5)]
+
+    torso_top=ground-int(270*s)
+    hip=ground-int(132*s)
+    head=torso_top-int(92*s)
+    hr=int(50*s)
+    lw=max(7,int(11*s))
+    outline=max(2,int(3*s))
+
+    # Ground shadow.
+    draw.ellipse((x-int(78*s),ground+2,x+int(78*s),ground+24), fill=(194,196,201))
+
+    # Legs with pants and shoes.
+    pants=(39,48,70) if role=="hero" else (82,54,65)
+    for dx,dy in leg_data:
+        kx=x+int(dx*s); ky=hip+int(34*s)
+        fx=x+int(dx*s); fy=ground+int(dy*s)
+        _limb(draw,(kx,ky),(fx,fy),pants,max(12,int(22*s)))
+    _shoe(draw,x+int(leg_data[0][0]*s),ground+int(leg_data[0][1]*s),-1,s)
+    _shoe(draw,x+int(leg_data[1][0]*s),ground+int(leg_data[1][1]*s),1,s)
+
+    # Body.
+    if role=="hero":
+        draw.rounded_rectangle(
+            (x-int(57*s),torso_top,x+int(57*s),hip+int(26*s)),
+            int(26*s), fill=C["hero_light"], outline=body, width=outline
         )
+        draw.rounded_rectangle(
+            (x-int(45*s),torso_top+int(14*s),x+int(45*s),hip),
+            int(20*s), fill=(255,255,255)
+        )
+        draw.rectangle((x-int(12*s),torso_top+int(55*s),x+int(12*s),torso_top+int(69*s)), fill=body)
+    else:
+        draw.rounded_rectangle(
+            (x-int(60*s),torso_top,x+int(60*s),hip+int(22*s)),
+            int(28*s), fill=C["mom_light"], outline=body, width=outline
+        )
+        draw.polygon([
+            (x-int(59*s),torso_top+int(8*s)),
+            (x+int(4*s),torso_top+int(8*s)),
+            (x+int(48*s),hip+int(23*s)),
+            (x-int(18*s),hip+int(23*s))
+        ], fill=(255,244,248))
 
-    draw.ellipse((x-hr, head-hr, x+hr, head+hr), fill=C["skin"], outline=C["ink"], width=lw)
-    draw.arc((x-hr, head-int(hr*.72)-10, x+hr, head-int(hr*.72)+50), 190, 350, fill=body, width=max(3, lw))
-    face(draw, x, head, mood, speaking, frame, s)
+    # Arms, sleeves and hands.
+    sleeve_fill=body
+    for dx,dy in arm_data:
+        ax=x+int(dx*s); ay=torso_top+int(54*s)+int(dy*s)
+        elbow=x+int(dx*0.52*s); ey=torso_top+int(54*s)+int(dy*0.48*s)
+        _limb(draw,(x,torso_top+int(54*s)),(elbow,ey),sleeve_fill,max(12,int(20*s)))
+        _limb(draw,(elbow,ey),(ax,ay),skin,max(10,int(15*s)))
+        _hand(draw,ax,ay,max(9,int(11*s)),skin)
 
+    # Neck and head.
+    draw.rounded_rectangle(
+        (x-int(16*s),head+int(30*s),x+int(16*s),head+int(62*s)),
+        10, fill=skin, outline=C["ink"], width=outline
+    )
+    draw.ellipse((x-hr,head-hr,x+hr,head+hr), fill=skin, outline=C["ink"], width=outline)
+    _hair(draw,x,head,role,s)
+    _cartoon_face(draw,x,head,mood,speaking,frame,s)
+
+    # Tiny clothing cue makes characters easy to distinguish.
+    if role=="hero":
+        draw.ellipse((x-int(15*s),torso_top+int(18*s),x+int(15*s),torso_top+int(48*s)), fill=body)
+        draw.text((x-int(10*s),torso_top+int(20*s)), "★", font=ft(FONT_BOLD,int(16*s)), fill=C["white"])
+    else:
+        draw.ellipse((x+int(36*s),hip-int(62*s),x+int(55*s),hip-int(43*s)), fill=(247,191,70), outline=C["ink"], width=max(1,int(2*s)))
 
 def caption_box(draw, text, p):
     f = ft(FONT_BOLD, 34 + int(2*math.sin(math.pi*p)))
@@ -540,11 +661,12 @@ async def build(topic):
 
     TIMELINE.write_text(json.dumps({
         "phase": 2,
+        "render_style": "original expressive full-body cartoon",
         "topic": topic,
         "format": {"width": W, "height": H, "fps": FPS},
         "timeline": timeline,
         "voice_map": voice_map,
-        "quality_target": "polished original 2D entertainment Short",
+        "quality_target": "polished original 2D cartoon entertainment Short",
     }, ensure_ascii=False, indent=2), encoding="utf-8")
 
     write_frames(story_data, durations)
