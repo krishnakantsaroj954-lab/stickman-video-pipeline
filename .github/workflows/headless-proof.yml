@@ -1,0 +1,57 @@
+name: Headless Animation Proof
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install FFmpeg and Chromium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg chromium
+
+      - name: Install Node dependencies
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+        run: npm install
+
+      - name: Render real 10-second proof
+        env:
+          CHROME_PATH: /usr/bin/chromium
+        run: npm run render:proof
+
+      - name: Verify real MP4
+        run: |
+          test -s build-proof/stickman-proof.mp4
+          ffprobe -v error -show_entries format=duration -show_entries stream=codec_name,width,height,avg_frame_rate -of default=noprint_wrappers=1 build-proof/stickman-proof.mp4
+          python - <<'PY'
+          import subprocess
+          d=float(subprocess.check_output([
+            "ffprobe","-v","error","-show_entries","format=duration",
+            "-of","csv=p=0","build-proof/stickman-proof.mp4"
+          ], text=True))
+          assert 9.8 <= d <= 10.1, d
+          print("REAL VIDEO QC PASS", d)
+          PY
+
+      - name: Upload proof video
+        uses: actions/upload-artifact@v4
+        with:
+          name: headless-animation-proof
+          path: build-proof/stickman-proof.mp4
+          if-no-files-found: error
+          retention-days: 7
