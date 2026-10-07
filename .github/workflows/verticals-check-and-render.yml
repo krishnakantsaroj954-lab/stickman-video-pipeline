@@ -49,7 +49,7 @@ jobs:
 
       - name: Render real Short
         env:
-          TOPIC: "${{ inputs.topic }}"
+          TOPIC: "${{ inputs.topic || 'Mummy ke saamne phone chalaate hue pakde jaana' }}"
         run: python scripts/generate_video.py --topic "$TOPIC"
 
       - name: Quality gate
