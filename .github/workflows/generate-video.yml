@@ -1,0 +1,58 @@
+name: Generate Stickman Video
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Topic for the stickman lesson"
+        required: true
+        default: "Newton's Third Law"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stickman-video-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install rendering dependency
+        run: python -m pip install --upgrade pip Pillow
+
+      - name: Verify FFmpeg
+        run: ffmpeg -version
+
+      - name: Render video
+        env:
+          TOPIC: ${{ inputs.topic || 'Smoke Test: Newtons Third Law' }}
+        run: python scripts/generate_video.py --topic "$TOPIC"
+
+      - name: Validate MP4
+        run: |
+          test -s build/stickman-video.mp4
+          ffprobe -v error -show_entries format=duration:stream=codec_name,width,height \
+            -of default=noprint_wrappers=1 build/stickman-video.mp4
+
+      - name: Upload video artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stickman-video
+          path: build/stickman-video.mp4
+          if-no-files-found: error
+          retention-days: 7
